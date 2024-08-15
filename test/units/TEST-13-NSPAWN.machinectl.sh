@@ -225,3 +225,4 @@ done
 
 varlinkctl --more call /run/systemd/machine/io.systemd.Machine io.systemd.Machine.List '{}'
 varlinkctl call /run/systemd/machine/io.systemd.Machine io.systemd.Machine.List '{"name":".host"}'
+varlinkctl call /run/systemd/machine/io.systemd.Machine io.systemd.Machine.Get '{"name":".host"}'
