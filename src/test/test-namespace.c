@@ -206,6 +206,11 @@ TEST(protect_kernel_logs) {
 }
 
 TEST(idmapping_supported) {
+        if (geteuid() > 0) {
+                (void) log_tests_skipped("not root");
+                return;
+        }
+
         assert_se(is_idmapping_supported("/run") >= 0);
         assert_se(is_idmapping_supported("/var/lib") >= 0);
         assert_se(is_idmapping_supported("/var/cache") >= 0);
