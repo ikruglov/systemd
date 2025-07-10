@@ -200,6 +200,7 @@ shared_sources = files(
         'varlink-io.systemd.MachineImage.c',
         'varlink-io.systemd.ManagedOOM.c',
         'varlink-io.systemd.Manager.c',
+        'varlink-io.systemd.Metrics.c',
         'varlink-io.systemd.MountFileSystem.c',
         'varlink-io.systemd.NamespaceResource.c',
         'varlink-io.systemd.Network.c',
