@@ -405,6 +405,7 @@ int manager_setup_varlink_server(Manager *m) {
         return 1;
 }
 
+/* TODO move this into a separate file: src/core/varlink-metrics.c */
 static int vl_method_list(sd_varlink *link, sd_json_variant *parameters, sd_varlink_method_flags_t flags, void *userdata) {
         Manager *m = ASSERT_PTR(userdata);
         int r;
@@ -417,7 +418,11 @@ static int vl_method_list(sd_varlink *link, sd_json_variant *parameters, sd_varl
 
         return sd_varlink_replybo(
                 link,
-                SD_JSON_BUILD_PAIR("units.active_units", SD_JSON_BUILD_INTEGER(hashmap_size(m->units))));
+                SD_JSON_BUILD_PAIR_STRING("name", "units"),
+                SD_JSON_BUILD_PAIR_UNSIGNED("value", hashmap_size(m->units)),
+                SD_JSON_BUILD_PAIR("fields",
+                        SD_JSON_BUILD_OBJECT(
+                                SD_JSON_BUILD_PAIR_STRING("state", "active"))));
 }
 
 static int manager_varlink_metrics_init(Manager *m) {
