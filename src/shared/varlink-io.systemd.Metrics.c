@@ -5,9 +5,9 @@ static SD_VARLINK_DEFINE_STRUCT_TYPE(
                 SD_VARLINK_FIELD_COMMENT("Metric family name"),
                 SD_VARLINK_DEFINE_FIELD(name, SD_VARLINK_STRING, 0),
                 SD_VARLINK_FIELD_COMMENT("Value of the metric"),
-                SD_VARLINK_DEFINE_FIELD(value, SD_VARLINK_INT, 0),
-                SD_VARLINK_FIELD_COMMENT("fields"),
-                SD_VARLINK_DEFINE_FIELD(fields, SD_VARLINK_STRUCT, SD_VARLINK_NULLABLE));
+                SD_VARLINK_DEFINE_FIELD(value, SD_VARLINK_INT, 0));
+                //SD_VARLINK_FIELD_COMMENT("fields"),
+                //SD_VARLINK_DEFINE_FIELD(fields, SD_VARLINK_STRUCT, SD_VARLINK_NULLABLE));
 
 static SD_VARLINK_DEFINE_METHOD(
                 List,

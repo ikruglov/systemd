@@ -420,6 +420,39 @@ static int vl_method_list(sd_varlink *link, sd_json_variant *parameters, sd_varl
                 SD_JSON_BUILD_PAIR("units.active_units", SD_JSON_BUILD_INTEGER(hashmap_size(m->units))));
 }
 
+static int manager_varlink_metrics_init(Manager *m) {
+        sd_varlink_server_flags_t flags = SD_VARLINK_SERVER_INHERIT_USERDATA;
+        _cleanup_free_ char *user_address = NULL;
+        const char *address;
+        int r;
+
+        assert(m);
+
+        if (MANAGER_IS_SYSTEM(m)) {
+                address = "/run/systemd/metrics/io.systemd.Manager";
+                flags |= SD_VARLINK_SERVER_ACCOUNT_UID;
+        } else {
+                user_address = path_join(m->prefix[EXEC_DIRECTORY_RUNTIME], "metrics/io.systemd.Manager");
+                if (!user_address)
+                        return -ENOMEM;
+                address = user_address;
+        }
+
+        r = metrics_setup_varlink_server(
+                        &m->metrics_varlink_server,
+                        flags,
+                        m->event,
+                        vl_method_list,
+                        m);
+        if (r < 0)
+                return r;
+
+        if (MANAGER_IS_TEST_RUN(m))
+                return 0;
+
+        return metrics_listen_varlink_address(m->metrics_varlink_server, address);
+}
+
 static int manager_varlink_init_system(Manager *m) {
         int r;
 
@@ -448,12 +481,7 @@ static int manager_varlink_init_system(Manager *m) {
                 }
         }
 
-        r = metrics_setup_varlink_server(
-                        &m->metrics_varlink_server,
-                        m->event,
-                        vl_method_list,
-                        m,
-                        "/run/systemd/metrics/io.systemd.Manager");
+        r = manager_varlink_metrics_init(m);
         if (r < 0)
                 return log_error_errno(r, "Failed to set up metrics varlink server: %m");
 
@@ -491,7 +519,10 @@ static int manager_varlink_init_user(Manager *m) {
                         return log_error_errno(r, "Failed to bind to varlink socket '%s': %m", address);
         }
 
-        // TODO: Make metrics server work for user manager
+        r = manager_varlink_metrics_init(m);
+        if (r < 0)
+                return log_error_errno(r, "Failed to set up metrics varlink server: %m");
+
         return manager_varlink_managed_oom_connect(m);
 }
 
