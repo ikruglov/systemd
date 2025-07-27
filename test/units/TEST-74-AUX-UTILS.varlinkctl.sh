@@ -196,6 +196,10 @@ varlinkctl call /run/systemd/io.systemd.Manager io.systemd.Unit.List '{"pid": {"
 (! varlinkctl call /run/systemd/io.systemd.Manager io.systemd.Unit.List '{"name": "non-existent.service"}')
 (! varlinkctl call /run/systemd/io.systemd.Manager io.systemd.Unit.List '{"pid": {"pid": -1}}' )
 
+# test io.systemd.Metrics
+varlinkctl info /run/systemd/metrics/io.systemd.Manager
+varlinkctl --more call /run/systemd/metrics/io.systemd.Manager io.systemd.Metrics.List {}
+
 # test io.systemd.Manager in user manager
 testuser_uid=$(id -u testuser)
 systemd-run --wait --pipe --user --machine testuser@ \
