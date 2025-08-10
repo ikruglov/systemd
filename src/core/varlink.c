@@ -448,6 +448,7 @@ static int manager_varlink_metrics_init(Manager *m) {
                         flags,
                         m->event,
                         vl_method_list,
+                        vl_method_describe,
                         m);
         if (r < 0)
                 return r;

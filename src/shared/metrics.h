@@ -1,5 +1,6 @@
 #pragma once
 
+#include "forward.h"
 #include "sd-varlink.h"
 
 int metrics_setup_varlink_server(
@@ -7,6 +8,7 @@ int metrics_setup_varlink_server(
                 sd_varlink_server_flags_t flags,
                 sd_event *event,
                 sd_varlink_method_t vl_method_list_cb,
+                sd_varlink_method_t vl_method_describe_cb,
                 void *userdata);
 
 int metrics_listen_varlink_address(sd_varlink_server *server, const char *address);
@@ -30,8 +32,7 @@ typedef enum MetricType {
         METRIC_TYPE_ERRNO_MAX = -ERRNO_MAX, /* Ensure the whole errno range fits into this enum */
 } MetricType;
 
-const char* metric_type_to_string(MetricType i) _const_;
-MetricType metric_type_from_string(const char *s) _pure_;
+const char* metric_type_to_string(MetricType t) _const_;
 
 /* Note: unused areas in the metrics_vtable[] array must be initialized to 0. The structure contains an
  * embedded union, and the compiler is NOT required to initialize the unused areas of the union when the rest
@@ -106,6 +107,7 @@ struct metrics_vtable {
         }
 
 #define JSON_BUILD_METRIC_NAME(name) SD_JSON_BUILD_PAIR_STRING("name", name)
+#define JSON_BUILD_METRIC_FULL_NAME(name) SD_JSON_BUILD_PAIR_STRING("name", name)
 #define JSON_BUILD_METRIC_VALUE(value) SD_JSON_BUILD_PAIR_UNSIGNED("value", value)
 #define JSON_BUILD_METRIC_OBJECT(object) SD_JSON_BUILD_PAIR_STRING("object", object)
 #define JSON_BUILD_METRIC_FIELD(k, v) JSON_BUILD_PAIR_STRING_NON_EMPTY(k, v)
@@ -117,3 +119,12 @@ struct metrics_vtable {
                 JSON_BUILD_PAIR_STRING_NON_EMPTY(k4, v4), \
                 JSON_BUILD_PAIR_STRING_NON_EMPTY(k5, v5)
 #define JSON_BUILD_METRIC(vl, name, count, pair) sd_json_buildo(&vl, JSON_BUILD_METRIC_NAME(name), JSON_BUILD_METRIC_VALUE(count), pair)
+#define JSON_BUILD_METRIC_FULL_DESCRIPTION(description) SD_JSON_BUILD_PAIR_STRING("description", description)
+#define JSON_BUILD_METRIC_FULL_TYPE(type) SD_JSON_BUILD_PAIR_STRING("type", type)
+#define JSON_BUILD_DESCRIPTION(vl, name, description, type) \
+        sd_json_buildo(                                                   \
+                &vl,                                                      \
+                JSON_BUILD_METRIC_FULL_NAME(name),                        \
+                JSON_BUILD_METRIC_FULL_DESCRIPTION(description),          \
+                JSON_BUILD_METRIC_FULL_TYPE(metric_type_to_string(type)))
+#define JSON_BUILD_METRIC_FULL_TYPE(type) SD_JSON_BUILD_PAIR_STRING("type", type)

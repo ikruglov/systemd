@@ -135,7 +135,6 @@ static int unit_types_total_build_json(sd_varlink *link, void *userdata, bool mo
 static int unit_states_total_build_json(sd_varlink *link, void *userdata, bool more) {
         int r;
         Manager *manager = ASSERT_PTR(userdata);
-        _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
 
         assert(link);
 
@@ -180,6 +179,29 @@ static int unit_state_build_json(sd_varlink *link, void *userdata, bool more) {
         return sd_varlink_error(link, VARLINK_ERROR_METRICS_NO_SUCH_METRIC, NULL);
 }
 
+static int vtable_describe_metrics_build_json_one(
+                sd_varlink *link,
+                const char* name,
+                const char* description,
+                MetricType type,
+                bool more) {
+        int r;
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
+
+        assert(link);
+        assert(name);
+        assert(description);
+
+        r = JSON_BUILD_DESCRIPTION(v, name, description, type);
+        if (r < 0)
+                return r;
+
+        if (more)
+                return sd_varlink_notify(link, v);
+
+        return sd_varlink_reply(link, v);
+}
+
 const metrics_vtable vtable[] = {
         METRICS_VTABLE_START(),
         METRICS_FAMILY(
@@ -219,6 +241,29 @@ static int vtable_list_metrics(sd_varlink *link, void *userdata) {
         return 0;
 }
 
+static int vtable_describe_metrics(sd_varlink *link) {
+        const metrics_vtable *i;
+        bool more = true;
+        int r;
+
+        for(i = vtable; i->type != _METRICS_VTABLE_END; i++) {
+                if (i->type != _METRICS_FAMILY)
+                        continue;
+                if ((i+1)->type == _METRICS_VTABLE_END)
+                        more = false;
+                r = vtable_describe_metrics_build_json_one(
+                        link,
+                        i->x.metric_family.name,
+                        i->x.metric_family.description,
+                        i->x.metric_family.type,
+                        more);
+                if (r < 0)
+                        return r;
+        }
+
+        return 0;
+}
+
 int vl_method_list(
                 sd_varlink *link,
                 sd_json_variant *parameters,
@@ -237,6 +282,30 @@ int vl_method_list(
                 return sd_varlink_error(link, SD_VARLINK_ERROR_EXPECTED_MORE, NULL);
 
         r = vtable_list_metrics(link, userdata);
+        if (r < 0)
+                return r;
+
+        return 0;
+}
+
+int vl_method_describe(
+                sd_varlink *link,
+                sd_json_variant *parameters,
+                sd_varlink_method_flags_t flags,
+                void *userdata) {
+        int r;
+
+        assert(link);
+        assert(parameters);
+
+        r = sd_varlink_dispatch(link, parameters, /* dispatch_table= */ NULL, /* userdata= */ NULL);
+        if (r != 0)
+                return r;
+
+        if (!FLAGS_SET(flags, SD_VARLINK_METHOD_MORE))
+                return sd_varlink_error(link, SD_VARLINK_ERROR_EXPECTED_MORE, NULL);
+
+        r = vtable_describe_metrics(link);
         if (r < 0)
                 return r;
 
