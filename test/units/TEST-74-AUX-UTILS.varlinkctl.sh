@@ -199,6 +199,7 @@ varlinkctl call /run/systemd/io.systemd.Manager io.systemd.Unit.List '{"pid": {"
 # test io.systemd.Metrics
 varlinkctl info /run/systemd/metrics/io.systemd.Manager
 varlinkctl --more call /run/systemd/metrics/io.systemd.Manager io.systemd.Metrics.List {}
+varlinkctl --more call /run/systemd/metrics/io.systemd.Manager io.systemd.Metrics.Describe {}
 
 # test io.systemd.Manager in user manager
 testuser_uid=$(id -u testuser)

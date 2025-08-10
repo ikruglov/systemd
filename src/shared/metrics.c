@@ -14,6 +14,7 @@ int metrics_setup_varlink_server(
                 sd_varlink_server_flags_t flags,
                 sd_event *event,
                 sd_varlink_method_t vl_method_list_cb,
+                sd_varlink_method_t vl_method_describe_cb,
                 void *userdata) {
         _cleanup_(sd_varlink_server_unrefp) sd_varlink_server *s = NULL;
         int r;
@@ -32,7 +33,10 @@ int metrics_setup_varlink_server(
         if (r < 0)
                 return log_debug_errno(r, "Failed to add varlink metrics interface to varlink server: %m");
 
-        r = sd_varlink_server_bind_method(s, "io.systemd.Metrics.List", vl_method_list_cb);
+        r = sd_varlink_server_bind_method_many(
+                s,
+                "io.systemd.Metrics.List", vl_method_list_cb,
+                "io.systemd.Metrics.Describe", vl_method_describe_cb);
         if (r < 0)
                 return log_debug_errno(r, "Failed to register varlink metrics methods: %m");
 

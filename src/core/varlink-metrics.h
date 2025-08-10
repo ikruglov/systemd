@@ -11,3 +11,9 @@
 #define METRIC_IO_SYSTEMD_MANAGER_UNIT_STATE            METRIC_IO_SYSTEMD_MANAGER_PREFIX "unit_state"
 
 int vl_method_list(sd_varlink *link, sd_json_variant *parameters, sd_varlink_method_flags_t flags, void *userdata);
+
+int vl_method_describe(
+                sd_varlink *link,
+                sd_json_variant *parameters,
+                sd_varlink_method_flags_t flags,
+                void *userdata);
