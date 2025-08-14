@@ -1,7 +1,10 @@
 #pragma once
 
 #include "forward.h"
+#include "sd-json.h"
 #include "sd-varlink.h"
+
+int metrics_query_all(sd_json_variant **ret);
 
 int metrics_setup_varlink_server(
                 sd_varlink_server **server, /* in and out param */

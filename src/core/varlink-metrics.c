@@ -109,8 +109,9 @@ static int unit_types_total_build_json(sd_varlink *link, void *userdata, bool mo
         assert(manager);
 
         UnitType *t, *previous_type = NULL;
+        UnitType type;
         for (int i = 0; i < _UNIT_TYPE_MAX; i++) {
-                UnitType type = (UnitType) i;
+                type = (UnitType) i;
                 t = &type;
 
                 if (previous_type) {
