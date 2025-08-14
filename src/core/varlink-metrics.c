@@ -1,14 +1,13 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
-
 #include <assert.h>
 #include <stdbool.h>
 #include <string.h>
-
 #include "hashmap.h"
 #include "install.h"
 #include "json-util.h"
 #include "manager.h"
 #include "metrics.h"
+#include "service.h"
 #include "set.h"
 #include "sd-json.h"
 #include "sd-varlink.h"
@@ -16,7 +15,7 @@
 #include "unit-def.h"
 #include "varlink-metrics.h"
 
-static int unit_states_total_build_json_one(
+static int units_by_state_total_build_json_one(
                 sd_varlink *link,
                 UnitActiveState state,
                 unsigned count,
@@ -27,13 +26,12 @@ static int unit_states_total_build_json_one(
         assert(link);
 
         r = METRIC_JSON_BUILD_UNSIGNED(
-                        &v,
-                        METRIC_IO_SYSTEMD_MANAGER_UNIT_STATES_TOTAL,
-                        /* object= */ NULL,
-                        count,
-                        /* fields */
-                        "state",
-                        unit_active_state_to_string(state));
+                &v,
+                METRIC_IO_SYSTEMD_MANAGER_UNITS_BY_STATE_TOTAL,
+                /* object= */ NULL,
+                count,
+                /* fields */ "state",
+                unit_active_state_to_string(state));
         if (r < 0)
                 return r;
 
@@ -43,7 +41,29 @@ static int unit_states_total_build_json_one(
         return sd_varlink_reply(link, v);
 }
 
-static int unit_types_total_build_json_one(sd_varlink *link, Manager *manager, UnitType *type, bool more) {
+static int units_by_state_total_build_json(sd_varlink *link, void *userdata, bool more) {
+        int r;
+        Manager *manager = ASSERT_PTR(userdata);
+
+        assert(link);
+
+        r = units_by_state_total_build_json_one(
+                link,
+                UNIT_ACTIVE,
+                hashmap_size(manager->units),
+                more);
+
+        if (r < 0)
+                return r;
+
+        return units_by_state_total_build_json_one(
+                link,
+                UNIT_FAILED,
+                set_size(manager->failed_units),
+                more);
+}
+
+static int units_by_type_total_build_json_one(sd_varlink *link, Manager *manager, UnitType *type, bool more) {
         int r;
         unsigned count = 0;
         _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
@@ -58,11 +78,11 @@ static int unit_types_total_build_json_one(sd_varlink *link, Manager *manager, U
 
         r = METRIC_JSON_BUILD_UNSIGNED(
                 &v,
-                METRIC_IO_SYSTEMD_MANAGER_UNIT_TYPES_TOTAL,
+                METRIC_IO_SYSTEMD_MANAGER_UNITS_BY_TYPE_TOTAL,
                 /* object= */ NULL,
                 count,
-                /* fields */
-                "type", unit_type_to_string(*type));
+                /* fields */ "type",
+                unit_type_to_string(*type));
         if (r < 0)
                 return r;
 
@@ -72,25 +92,43 @@ static int unit_types_total_build_json_one(sd_varlink *link, Manager *manager, U
         return sd_varlink_reply(link, v);
 }
 
-static int unit_state_build_json_one(sd_varlink *link, Unit *unit, bool more) {
+static int units_by_type_total_build_json(sd_varlink *link, void *userdata, bool more) {
+        int r;
+        Manager *manager = ASSERT_PTR(userdata);
+
+        assert(link);
+
+        UnitType *t, *previous_type = NULL;
+        UnitType type;
+        for (int i = 0; i < _UNIT_TYPE_MAX; i++) {
+                type = (UnitType) i;
+                t = &type;
+
+                if (previous_type) {
+                        r = units_by_type_total_build_json_one(link, manager, previous_type, more);
+                        if (r < 0)
+                                return r;
+                }
+
+                previous_type = t;
+        }
+
+        return units_by_type_total_build_json_one(link, manager, previous_type, more);
+}
+
+static int unit_active_state_build_json_one(sd_varlink *link, Unit *unit, bool more) {
         _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
         int r;
 
         assert(link);
         assert(unit);
 
-
-        r = METRIC_JSON_BUILD_UNSIGNED(
+        r = METRIC_JSON_BUILD_STRING(
                 &v,
-                METRIC_IO_SYSTEMD_MANAGER_UNIT_STATE,
+                METRIC_IO_SYSTEMD_MANAGER_UNIT_ACTIVE_STATE,
                 unit->id,
-                /* value= */ 0, /* 0 is a placeholder and has no meaning */
-                /* fields */
-                "state", unit_active_state_to_string(unit_active_state(unit)),
-                "load_state", unit_load_state_to_string(unit->load_state),
-                "sub_state", unit_sub_state_to_string(unit),
-                "freezer_state", freezer_state_to_string(unit->freezer_state),
-                "unit_file_state", unit_file_state_to_string(unit_get_unit_file_state(unit)));
+                unit_active_state_to_string(unit_active_state(unit)),
+                /* fields */ NULL);
         if (r < 0)
                 return r;
 
@@ -100,71 +138,20 @@ static int unit_state_build_json_one(sd_varlink *link, Unit *unit, bool more) {
         return sd_varlink_reply(link, v);
 }
 
-static int unit_types_total_build_json(sd_varlink *link, void *userdata, bool more) {
-        int r;
-        Manager *manager = ASSERT_PTR(userdata);
-
-        assert(link);
-        assert(manager);
-
-        UnitType *t, *previous_type = NULL;
-        for (int i = 0; i < _UNIT_TYPE_MAX; i++) {
-                UnitType type = (UnitType) i;
-                t = &type;
-
-                if (previous_type) {
-                        r = unit_types_total_build_json_one(link, manager, previous_type, more);
-                        if (r < 0)
-                                return r;
-                }
-
-                previous_type = t;
-       }
-
-        if (previous_type) {
-                r = unit_types_total_build_json_one(link, manager, previous_type, more);
-                if (r < 0)
-                        return r;
-        } else
-                return sd_varlink_error(link, VARLINK_ERROR_METRICS_NO_SUCH_METRIC, NULL);
-
-        return 0;
-}
-
-static int unit_states_total_build_json(sd_varlink *link, void *userdata, bool more) {
-        int r;
-        Manager *manager = ASSERT_PTR(userdata);
-
-        assert(link);
-
-        r = unit_states_total_build_json_one(
-                link,
-                UNIT_ACTIVE,
-                hashmap_size(manager->units),
-                more);
-        if (r < 0)
-                return r;
-
-        return unit_states_total_build_json_one(
-                link,
-                UNIT_FAILED,
-                set_size(manager->failed_units),
-                more);
-}
-
-static int unit_state_build_json(sd_varlink *link, void *userdata, bool more) {
+static int unit_active_state_build_json(sd_varlink *link, void *userdata, bool more) {
         int r;
         const char *k;
         Unit *u, *previous = NULL;
         Manager *manager = ASSERT_PTR(userdata);
 
+        assert(link);
+
         HASHMAP_FOREACH_KEY(u, k, manager->units) {
                 /* ignore aliases */
                 if (k != u->id)
                         continue;
-
                 if (previous) {
-                        r = unit_state_build_json_one(link, previous, /* more = */ true);
+                        r = unit_active_state_build_json_one(link, previous, /* more = */ true);
                         if (r < 0)
                                 return r;
                 }
@@ -173,7 +160,101 @@ static int unit_state_build_json(sd_varlink *link, void *userdata, bool more) {
         }
 
         if (previous)
-                return unit_state_build_json_one(link, previous, more);
+                return unit_active_state_build_json_one(link, previous, more);
+
+        return sd_varlink_error(link, VARLINK_ERROR_METRICS_NO_SUCH_METRIC, NULL);
+}
+
+static int unit_load_state_build_json_one(sd_varlink *link, Unit *unit, bool more) {
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
+        int r;
+
+        assert(link);
+        assert(unit);
+
+        r = METRIC_JSON_BUILD_STRING(
+                &v,
+                METRIC_IO_SYSTEMD_MANAGER_UNIT_LOAD_STATE,
+                unit->id,
+                unit_load_state_to_string(unit->load_state),
+                /* fields */ NULL);
+        if (r < 0)
+                return r;
+
+        if (more)
+                return sd_varlink_notify(link, v);
+
+        return sd_varlink_reply(link, v);
+}
+
+static int unit_load_state_build_json(sd_varlink *link, void *userdata, bool more) {
+        int r;
+        const char *k;
+        Unit *u, *previous = NULL;
+        Manager *manager = ASSERT_PTR(userdata);
+
+        assert(link);
+
+        HASHMAP_FOREACH_KEY(u, k, manager->units) {
+                /* ignore aliases */
+                if (k != u->id)
+                        continue;
+                if (previous) {
+                        r = unit_load_state_build_json_one(link, previous, /* more = */ true);
+                        if (r < 0)
+                                return r;
+                }
+
+                previous = u;
+        }
+
+        if (previous)
+                return unit_load_state_build_json_one(link, previous, more);
+
+        return sd_varlink_error(link, VARLINK_ERROR_METRICS_NO_SUCH_METRIC, NULL);
+}
+
+static int nrestarts_build_json_one(sd_varlink *link, Unit *unit, bool more) {
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
+        int r;
+
+        assert(link);
+        assert(unit);
+
+        Service *service = SERVICE(unit);
+
+        r = METRIC_JSON_BUILD_UNSIGNED(
+                &v,
+                METRIC_IO_SYSTEMD_MANAGER_SERVICE_NRESTARTS,
+                service->meta.id,
+                service->n_restarts,
+                /* fields */ NULL);
+        if (r < 0)
+                return r;
+
+        if (more)
+                return sd_varlink_notify(link, v);
+
+        return sd_varlink_reply(link, v);
+}
+
+static int nrestarts_build_json(sd_varlink *link, void *userdata, bool more) {
+        Unit *previous = NULL;
+        Manager *manager = ASSERT_PTR(userdata);
+
+        assert(link);
+
+        LIST_FOREACH(units_by_type, u, manager->units_by_type[UNIT_SERVICE]) {
+                if (previous) {
+                        int r = nrestarts_build_json_one(link, previous, /* more = */ true);
+                        if (r < 0)
+                                return r;
+                }
+                previous = u;
+        }
+
+        if (previous)
+                return nrestarts_build_json_one(link, previous, more);
 
         return sd_varlink_error(link, VARLINK_ERROR_METRICS_NO_SUCH_METRIC, NULL);
 }
@@ -184,7 +265,6 @@ static int vtable_describe_metrics_build_json_one(sd_varlink *link, const Metric
 
         assert(link);
         assert(metric_family);
-
 
         r = metric_family_json_build(&v, metric_family);
         if (r < 0)
@@ -198,23 +278,31 @@ static int vtable_describe_metrics_build_json_one(sd_varlink *link, const Metric
 
 const MetricFamily metric_family_table[] = {
         METRIC_FAMILY(
-                METRIC_IO_SYSTEMD_MANAGER_UNIT_STATES_TOTAL,
-
+                METRIC_IO_SYSTEMD_MANAGER_UNITS_BY_STATE_TOTAL,
                 "Total counts of units of different states",
                 METRIC_FAMILY_TYPE_GAUGE,
-                unit_states_total_build_json),
+                units_by_state_total_build_json),
         METRIC_FAMILY(
-                METRIC_IO_SYSTEMD_MANAGER_UNIT_TYPES_TOTAL,
+                METRIC_IO_SYSTEMD_MANAGER_UNITS_BY_TYPE_TOTAL,
                 "Total counts of units of different types",
                 METRIC_FAMILY_TYPE_GAUGE,
-                unit_types_total_build_json),
+                units_by_type_total_build_json),
         METRIC_FAMILY(
-                METRIC_IO_SYSTEMD_MANAGER_UNIT_STATE,
-                "Per unit metrics",
+                METRIC_IO_SYSTEMD_MANAGER_UNIT_ACTIVE_STATE,
+                "Per unit metric: active state",
+                METRIC_FAMILY_TYPE_STRING,
+                unit_active_state_build_json),
+        METRIC_FAMILY(
+                METRIC_IO_SYSTEMD_MANAGER_UNIT_LOAD_STATE,
+                "Per unit metric: load state",
+                METRIC_FAMILY_TYPE_STRING,
+                unit_load_state_build_json),
+        METRIC_FAMILY(
+                METRIC_IO_SYSTEMD_MANAGER_SERVICE_NRESTARTS,
+                "Per service metric: n_restarts state",
                 METRIC_FAMILY_TYPE_GAUGE,
-                unit_state_build_json),
+                nrestarts_build_json),
         {},
-
 };
 
 int vl_method_list(
@@ -237,7 +325,7 @@ int vl_method_list(
         const MetricFamily *previous = NULL;
         for (const MetricFamily *mf = metric_family_table; mf && mf->name; mf++) {
                 if (previous) {
-                        r = previous->cb(link, userdata, true);
+                        r = previous->cb(link, userdata, /* more */ true);
                         if (r < 0)
                                 return log_debug_errno(r, "Failed to list metrics for metric family '%s': %m", previous->name);
                 }
@@ -246,7 +334,7 @@ int vl_method_list(
         }
 
         if (previous) {
-                r = previous->cb(link, userdata, false);
+                r = previous->cb(link, userdata, /* more */ false);
                 if (r < 0)
                         return log_debug_errno(r, "Failed to list metrics for metric family '%s': %m", previous->name);
         }
@@ -274,7 +362,7 @@ int vl_method_describe(
         const MetricFamily *previous = NULL;
         for (const MetricFamily *mf = metric_family_table; mf && mf->name; mf++) {
                 if (previous) {
-                        r = vtable_describe_metrics_build_json_one(link, previous, true);
+                        r = vtable_describe_metrics_build_json_one(link, previous, /* more */ true);
                         if (r < 0)
                                 return log_debug_errno(r, "Failed to describe metric family '%s': %m", previous->name);
                 }
@@ -283,7 +371,7 @@ int vl_method_describe(
         }
 
         if (previous) {
-                r = vtable_describe_metrics_build_json_one(link, previous, false);
+                r = vtable_describe_metrics_build_json_one(link, previous, /* more */ false);
                 if (r < 0)
                         return log_debug_errno(r, "Failed to describe metric family '%s': %m", previous->name);
         }

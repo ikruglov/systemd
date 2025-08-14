@@ -210,6 +210,9 @@ systemd-run --wait --pipe --user --machine testuser@ \
 systemd-run --wait --pipe --user --machine testuser@ \
         varlinkctl call "/run/user/$testuser_uid/systemd/io.systemd.Manager" io.systemd.Manager.Describe '{}'
 
+# test report in user manager
+systemd-report
+
 # test io.systemd.Unit in user manager
 systemd-run --wait --pipe --user --machine testuser@ \
         varlinkctl --more call "/run/user/$testuser_uid/systemd/io.systemd.Manager" io.systemd.Unit.List '{}'
