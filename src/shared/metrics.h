@@ -66,14 +66,6 @@ struct metrics_vtable {
         } x;
 };
 
-#define IO_SYSTEMD_MANAGER "io.systemd.Manager."
-#define UNIT_STATES_TOTAL "unit_states_total"
-#define UNIT_TYPES_TOTAL "unit_types_total"
-#define UNIT_STATE "unit_state"
-#define IO_SYSTEMD_MANAGER_UNIT_STATES_TOTAL IO_SYSTEMD_MANAGER UNIT_STATES_TOTAL
-#define IO_SYSTEMD_MANAGER_UNIT_TYPES_TOTAL IO_SYSTEMD_MANAGER UNIT_TYPES_TOTAL
-#define IO_SYSTEMD_MANAGER_UNIT_STATE IO_SYSTEMD_MANAGER UNIT_STATE
-
 #define METRICS_VTABLE_START()                                          \
         {                                                               \
                 .type = _METRICS_VTABLE_START,                          \
