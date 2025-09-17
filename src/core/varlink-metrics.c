@@ -26,11 +26,14 @@ static int unit_states_total_build_json_one(
 
         assert(link);
 
-        r = JSON_BUILD_METRIC(
-                v,
-                IO_SYSTEMD_MANAGER_UNIT_STATES_TOTAL,
-                count,
-                JSON_BUILD_METRIC_FIELD("state", unit_active_state_to_string(state)));
+        r = METRIC_JSON_BUILD_UNSIGNED(
+                        &v,
+                        METRIC_IO_SYSTEMD_MANAGER_UNIT_STATES_TOTAL,
+                        /* object= */ NULL,
+                        count,
+                        /* fields */
+                        "state",
+                        unit_active_state_to_string(state));
         if (r < 0)
                 return r;
 
@@ -53,11 +56,13 @@ static int unit_types_total_build_json_one(sd_varlink *link, Manager *manager, U
         LIST_FOREACH(units_by_type, _u, manager->units_by_type[*type])
                 count++;
 
-        r = JSON_BUILD_METRIC(
-                v,
-                IO_SYSTEMD_MANAGER_UNIT_TYPES_TOTAL,
+        r = METRIC_JSON_BUILD_UNSIGNED(
+                &v,
+                METRIC_IO_SYSTEMD_MANAGER_UNIT_TYPES_TOTAL,
+                /* object= */ NULL,
                 count,
-                JSON_BUILD_METRIC_FIELD("type", unit_type_to_string(*type)));
+                /* fields */
+                "type", unit_type_to_string(*type));
         if (r < 0)
                 return r;
 
@@ -74,24 +79,17 @@ static int unit_state_build_json_one(sd_varlink *link, Unit *unit, bool more) {
         assert(link);
         assert(unit);
 
-        r = sd_json_buildo(
+        r = METRIC_JSON_BUILD_UNSIGNED(
                 &v,
-                JSON_BUILD_METRIC_NAME(IO_SYSTEMD_MANAGER_UNIT_STATE),
-                JSON_BUILD_METRIC_VALUE(0), /* 0 is a placeholder and has no meaning */
-                JSON_BUILD_METRIC_OBJECT(unit->id),
-                JSON_BUILD_METRIC_FIELDS(
-                        JSON_BUILD_METRIC_FIELD5(
-                                "state",
-                                unit_active_state_to_string(unit_active_state(unit)),
-                                "load_state",
-                                unit_load_state_to_string(unit->load_state),
-                                "sub_state",
-                                unit_sub_state_to_string(unit),
-                                "freezer_state",
-                                freezer_state_to_string(unit->freezer_state),
-                                "unit_file_state",
-                                unit_file_state_to_string(unit_get_unit_file_state(unit)))));
-
+                METRIC_IO_SYSTEMD_MANAGER_UNIT_STATE,
+                unit->id,
+                /* value= */ 0, /* 0 is a placeholder and has no meaning */
+                /* fields */
+                "state", unit_active_state_to_string(unit_active_state(unit)),
+                "load_state", unit_load_state_to_string(unit->load_state),
+                "sub_state", unit_sub_state_to_string(unit),
+                "freezer_state", freezer_state_to_string(unit->freezer_state),
+                "unit_file_state", unit_file_state_to_string(unit_get_unit_file_state(unit)));
         if (r < 0)
                 return r;
 
@@ -180,20 +178,14 @@ static int unit_state_build_json(sd_varlink *link, void *userdata, bool more) {
         return sd_varlink_error(link, VARLINK_ERROR_METRICS_NO_SUCH_METRIC, NULL);
 }
 
-static int vtable_describe_metrics_build_json_one(
-                sd_varlink *link,
-                const char* name,
-                const char* description,
-                MetricType type,
-                bool more) {
+static int vtable_describe_metrics_build_json_one(sd_varlink *link, const MetricFamily* metric_family, bool more) {
         int r;
         _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
 
         assert(link);
-        assert(name);
-        assert(description);
+        assert(metric_family);
 
-        r = JSON_BUILD_DESCRIPTION(v, name, description, type);
+        r = metric_family_json_build(&v, metric_family);
         if (r < 0)
                 return r;
 
@@ -203,67 +195,24 @@ static int vtable_describe_metrics_build_json_one(
         return sd_varlink_reply(link, v);
 }
 
-const metrics_vtable vtable[] = {
-        METRICS_VTABLE_START(),
-        METRICS_FAMILY(
-                IO_SYSTEMD_MANAGER_UNIT_STATES_TOTAL,
+const MetricFamily metric_family_table[] = {
+        METRIC_FAMILY(
+                METRIC_IO_SYSTEMD_MANAGER_UNIT_STATES_TOTAL,
                 "Total counts of units of different states",
-                METRIC_GAUGE,
+                METRIC_FAMILY_TYPE_GAUGE,
                 unit_states_total_build_json),
-        METRICS_FAMILY(
-                IO_SYSTEMD_MANAGER_UNIT_TYPES_TOTAL,
+        METRIC_FAMILY(
+                METRIC_IO_SYSTEMD_MANAGER_UNIT_TYPES_TOTAL,
                 "Total counts of units of different types",
-                METRIC_GAUGE,
+                METRIC_FAMILY_TYPE_GAUGE,
                 unit_types_total_build_json),
-        METRICS_FAMILY(
-                IO_SYSTEMD_MANAGER_UNIT_STATE,
+        METRIC_FAMILY(
+                METRIC_IO_SYSTEMD_MANAGER_UNIT_STATE,
                 "Per unit metrics",
-                METRIC_GAUGE,
+                METRIC_FAMILY_TYPE_GAUGE,
                 unit_state_build_json),
-
-        METRICS_VTABLE_END
+        {},
 };
-
-static int vtable_list_metrics(sd_varlink *link, void *userdata) {
-        const metrics_vtable *i;
-        bool more = true;
-        int r;
-
-        for(i = vtable; i->type != _METRICS_VTABLE_END; i++) {
-                if (i->type != _METRICS_FAMILY)
-                        continue;
-                if ((i+1)->type == _METRICS_VTABLE_END)
-                        more = false;
-                r = i->x.metric_family.get(link, userdata, more);
-                if (r < 0)
-                        return r;
-        }
-
-        return 0;
-}
-
-static int vtable_describe_metrics(sd_varlink *link) {
-        const metrics_vtable *i;
-        bool more = true;
-        int r;
-
-        for(i = vtable; i->type != _METRICS_VTABLE_END; i++) {
-                if (i->type != _METRICS_FAMILY)
-                        continue;
-                if ((i+1)->type == _METRICS_VTABLE_END)
-                        more = false;
-                r = vtable_describe_metrics_build_json_one(
-                        link,
-                        i->x.metric_family.name,
-                        i->x.metric_family.description,
-                        i->x.metric_family.type,
-                        more);
-                if (r < 0)
-                        return r;
-        }
-
-        return 0;
-}
 
 int vl_method_list(
                 sd_varlink *link,
@@ -282,9 +231,22 @@ int vl_method_list(
         if (!FLAGS_SET(flags, SD_VARLINK_METHOD_MORE))
                 return sd_varlink_error(link, SD_VARLINK_ERROR_EXPECTED_MORE, NULL);
 
-        r = vtable_list_metrics(link, userdata);
-        if (r < 0)
-                return r;
+        const MetricFamily *previous = NULL;
+        for (const MetricFamily *mf = metric_family_table; mf && mf->name; mf++) {
+                if (previous) {
+                        r = previous->cb(link, userdata, true);
+                        if (r < 0)
+                                return log_debug_errno(r, "Failed to list metrics for metric family '%s': %m", previous->name);
+                }
+
+                previous = mf;
+        }
+
+        if (previous) {
+                r = previous->cb(link, userdata, false);
+                if (r < 0)
+                        return log_debug_errno(r, "Failed to list metrics for metric family '%s': %m", previous->name);
+        }
 
         return 0;
 }
@@ -306,9 +268,22 @@ int vl_method_describe(
         if (!FLAGS_SET(flags, SD_VARLINK_METHOD_MORE))
                 return sd_varlink_error(link, SD_VARLINK_ERROR_EXPECTED_MORE, NULL);
 
-        r = vtable_describe_metrics(link);
-        if (r < 0)
-                return r;
+        const MetricFamily *previous = NULL;
+        for (const MetricFamily *mf = metric_family_table; mf && mf->name; mf++) {
+                if (previous) {
+                        r = vtable_describe_metrics_build_json_one(link, previous, true);
+                        if (r < 0)
+                                return log_debug_errno(r, "Failed to describe metric family '%s': %m", previous->name);
+                }
+
+                previous = mf;
+        }
+
+        if (previous) {
+                r = vtable_describe_metrics_build_json_one(link, previous, false);
+                if (r < 0)
+                        return log_debug_errno(r, "Failed to describe metric family '%s': %m", previous->name);
+        }
 
         return 0;
 }
