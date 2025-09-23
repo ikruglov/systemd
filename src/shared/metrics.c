@@ -73,81 +73,18 @@ static const char * const metric_family_type_table[_METRIC_FAMILY_TYPE_MAX] = {
 
 DEFINE_STRING_TABLE_LOOKUP_TO_STRING(metric_family_type, MetricFamilyType);
 
-int metric_family_json_build(sd_json_variant **v, const MetricFamily *metric_family) {
-        assert(metric_family);
-        return sd_json_buildo(
-                ASSERT_PTR(v),
-                SD_JSON_BUILD_PAIR_STRING("name", metric_family->name),
-                SD_JSON_BUILD_PAIR_STRING("description", metric_family->description),
-                SD_JSON_BUILD_PAIR_STRING("type", metric_family_type_to_string(metric_family->type)));
-}
-
-static int metric_fields_build_json(sd_json_variant **ret, const char *name, void *userdata) {
-        _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
-        char **fields = ASSERT_PTR(userdata);
-        int r;
-
-        assert(ret);
-        assert(name);
-
-        if (strv_isempty(fields)) {
-                *ret = NULL;
-                return 0;
-        }
-
-        STRV_FOREACH_PAIR(fk, fv, fields) {
-                r = sd_json_variant_merge_objectbo(&v, SD_JSON_BUILD_PAIR_STRING(*fk, *fv));
-                if (r < 0)
-                        return r;
-        }
-
-        *ret = TAKE_PTR(v);
-        return 0;
-}
-
-static int metric_json_build_body(sd_json_variant **v, const char *name, const char *object, char **fields) {
-        return sd_json_buildo(
-                        ASSERT_PTR(v),
-                        SD_JSON_BUILD_PAIR_STRING("name", ASSERT_PTR(name)),
-                        JSON_BUILD_PAIR_STRING_NON_EMPTY("object", object),
-                        JSON_BUILD_PAIR_CALLBACK_NON_NULL("fields", metric_fields_build_json, fields));
-}
-
-int metric_json_build_unsigned(sd_json_variant **v, const char *name, const char *object, uint64_t value, char **fields) {
-        int r;
-        r = metric_json_build_body(v, name, object, fields);
-        if (r < 0)
-                return r;
-
-        return sd_json_variant_set_field_unsigned(v, "value", value);
-}
-
-int metric_json_build_integer(sd_json_variant **v, const char *name, const char *object, int64_t value, char **fields) {
-        int r;
-        r = metric_json_build_body(v, name, object, fields);
-        if (r < 0)
-                return r;
-
-        return sd_json_variant_set_field_integer(v, "value", value);
-}
-
-int metric_json_build_string(sd_json_variant **v, const char *name, const char *object, const char *value, char **fields) {
-        int r;
-        r = metric_json_build_body(v, name, object, fields);
-        if (r < 0)
-                return r;
-
-        return sd_json_variant_set_field_string(v, "value", value);
-}
-
-static int metric_family_build_json_one(sd_varlink *link, const MetricFamily* metric_family, bool more) {
+static int metric_family_build_json_one(sd_varlink *link, const MetricFamily* mf, bool more) {
         _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
         int r;
 
         assert(link);
-        assert(metric_family);
+        assert(mf);
 
-        r = metric_family_json_build(&v, metric_family);
+        r = sd_json_buildo(
+                        &v,
+                        SD_JSON_BUILD_PAIR_STRING("name", mf->name),
+                        SD_JSON_BUILD_PAIR_STRING("description", mf->description),
+                        SD_JSON_BUILD_PAIR_STRING("type", metric_family_type_to_string(mf->type)));
         if (r < 0)
                 return r;
 
@@ -157,7 +94,7 @@ static int metric_family_build_json_one(sd_varlink *link, const MetricFamily* me
         return sd_varlink_reply(link, v);
 }
 
-int metric_method_describe(const MetricFamily metric_family_table[], sd_varlink *link, sd_json_variant *parameters, sd_varlink_method_flags_t flags, void *userdata) {
+int metrics_method_describe(const MetricFamily metric_family_table[], sd_varlink *link, sd_json_variant *parameters, sd_varlink_method_flags_t flags, void *userdata) {
         int r;
 
         assert(metric_family_table);
@@ -191,7 +128,7 @@ int metric_method_describe(const MetricFamily metric_family_table[], sd_varlink 
         return 0;
 }
 
-int metric_method_list(const MetricFamily metric_family_table[], sd_varlink *link, sd_json_variant *parameters, sd_varlink_method_flags_t flags, void *userdata) {
+int metrics_method_list(const MetricFamily metric_family_table[], sd_varlink *link, sd_json_variant *parameters, sd_varlink_method_flags_t flags, void *userdata) {
         int r;
 
         assert(metric_family_table);
@@ -205,22 +142,80 @@ int metric_method_list(const MetricFamily metric_family_table[], sd_varlink *lin
         if (!FLAGS_SET(flags, SD_VARLINK_METHOD_MORE))
                 return sd_varlink_error(link, SD_VARLINK_ERROR_EXPECTED_MORE, NULL);
 
-        const MetricFamily *previous = NULL;
         for (const MetricFamily *mf = metric_family_table; mf && mf->name; mf++) {
-                if (previous) {
-                        r = previous->cb(link, userdata, /* more= */ true);
-                        if (r < 0)
-                                return log_debug_errno(r, "Failed to list metrics for metric family '%s': %m", previous->name);
-                }
-
-                previous = mf;
-        }
-
-        if (previous) {
-                r = previous->cb(link, userdata, /* more= */ false);
+                assert(mf->iterate_cb);
+                r = mf->iterate_cb(link, mf, userdata);
                 if (r < 0)
-                        return log_debug_errno(r, "Failed to list metrics for metric family '%s': %m", previous->name);
+                        return log_debug_errno(r, "Failed to list metrics for metric family '%s': %m", mf->name);
         }
 
-        return 0;
+        /* produce last empty metric to notify client about more = false */
+        return sd_varlink_reply(link, NULL);
+}
+
+int metric_build_full_json_one(sd_varlink *link, const MetricFamily *mf, const char *object, sd_json_variant *value, char **fields) {
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
+        int r;
+
+        assert(link);
+        assert(mf);
+
+        r = sd_json_buildo(
+                        &v,
+                        SD_JSON_BUILD_PAIR_STRING("name", mf->name),
+                        JSON_BUILD_PAIR_STRING_NON_EMPTY("object", object),
+                        JSON_BUILD_PAIR_VARIANT_NON_NULL("value", value));
+                        /* TODO JSON_BUILD_PAIR_OBJECT_STRV_NOT_NULL */
+        if (r < 0)
+                return r;
+
+        if (fields) { /* NULL => no fields object, empty strv => field: {} */
+                r = metric_set_fields(&v, fields);
+                if (r < 0)
+                        return r;
+        }
+
+        return sd_varlink_notify(link, v);
+}
+
+int metric_build_body_json_one(sd_varlink *link, const MetricFamily *mf, const char *object, void *userdata) {
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
+        int r;
+
+        assert(link);
+        assert(mf);
+
+        r = sd_json_buildo(
+                        &v,
+                        SD_JSON_BUILD_PAIR_STRING("name", mf->name),
+                        JSON_BUILD_PAIR_STRING_NON_EMPTY("object", object));
+        if (r < 0)
+                return r;
+
+        r = mf->fill_metric_cb(&v, userdata);
+        if (r < 0)
+                return log_debug_errno(r, "Failed to call fill_metric_cb for '%s': %m", mf->name);
+
+        return sd_varlink_notify(link, v);
+}
+
+int metric_set_value_string(sd_json_variant **v, const char *value) {
+        return sd_json_variant_set_field_string(ASSERT_PTR(v), "value", ASSERT_PTR(value));
+}
+
+int metric_set_value_unsigned(sd_json_variant **v, uint64_t value) {
+        return sd_json_variant_set_field_unsigned(ASSERT_PTR(v), "value", value);
+}
+
+int metric_set_fields(sd_json_variant **v, char **fields) {
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *fields_v = NULL;
+        int r;
+
+        STRV_FOREACH_PAIR(fk, fv, fields) {
+                r = sd_json_variant_merge_objectbo(&fields_v, SD_JSON_BUILD_PAIR_STRING(*fk, *fv));
+                if (r < 0)
+                        return r;
+        }
+
+        return sd_json_variant_set_field(ASSERT_PTR(v), "fields", fields_v);
 }

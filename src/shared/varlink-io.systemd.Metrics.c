@@ -19,10 +19,10 @@ static SD_VARLINK_DEFINE_METHOD_FULL(
                 List,
                 SD_VARLINK_SUPPORTS_MORE,
                 SD_VARLINK_FIELD_COMMENT("Metric name"),
-                SD_VARLINK_DEFINE_FIELD(name, SD_VARLINK_STRING, 0),
+                SD_VARLINK_DEFINE_FIELD(name, SD_VARLINK_STRING, SD_VARLINK_NULLABLE),
                 /* metric value has various types depending on MetricFamilyType and actual data double/int/uint */
                 SD_VARLINK_FIELD_COMMENT("Metric value"),
-                SD_VARLINK_DEFINE_FIELD(value, SD_VARLINK_OBJECT, 0),
+                SD_VARLINK_DEFINE_FIELD(value, SD_VARLINK_OBJECT, SD_VARLINK_NULLABLE),
                 SD_VARLINK_FIELD_COMMENT("Metric object name"),
                 SD_VARLINK_DEFINE_FIELD(object, SD_VARLINK_STRING, SD_VARLINK_NULLABLE),
                 SD_VARLINK_FIELD_COMMENT("Metric fields"),
