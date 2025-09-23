@@ -259,23 +259,6 @@ static int nrestarts_build_json(sd_varlink *link, void *userdata, bool more) {
         return sd_varlink_error(link, VARLINK_ERROR_METRICS_NO_SUCH_METRIC, NULL);
 }
 
-static int vtable_describe_metrics_build_json_one(sd_varlink *link, const MetricFamily* metric_family, bool more) {
-        int r;
-        _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
-
-        assert(link);
-        assert(metric_family);
-
-        r = metric_family_json_build(&v, metric_family);
-        if (r < 0)
-                return r;
-
-        if (more)
-                return sd_varlink_notify(link, v);
-
-        return sd_varlink_reply(link, v);
-}
-
 const MetricFamily metric_family_table[] = {
         METRIC_FAMILY(
                 METRIC_IO_SYSTEMD_MANAGER_UNITS_BY_STATE_TOTAL,
@@ -305,76 +288,10 @@ const MetricFamily metric_family_table[] = {
         {},
 };
 
-int vl_method_list(
-                sd_varlink *link,
-                sd_json_variant *parameters,
-                sd_varlink_method_flags_t flags,
-                void *userdata) {
-        int r;
-
-        assert(link);
-        assert(parameters);
-
-        r = sd_varlink_dispatch(link, parameters, /* dispatch_table= */ NULL, /* userdata= */ NULL);
-        if (r != 0)
-                return r;
-
-        if (!FLAGS_SET(flags, SD_VARLINK_METHOD_MORE))
-                return sd_varlink_error(link, SD_VARLINK_ERROR_EXPECTED_MORE, NULL);
-
-        const MetricFamily *previous = NULL;
-        for (const MetricFamily *mf = metric_family_table; mf && mf->name; mf++) {
-                if (previous) {
-                        r = previous->cb(link, userdata, /* more */ true);
-                        if (r < 0)
-                                return log_debug_errno(r, "Failed to list metrics for metric family '%s': %m", previous->name);
-                }
-
-                previous = mf;
-        }
-
-        if (previous) {
-                r = previous->cb(link, userdata, /* more */ false);
-                if (r < 0)
-                        return log_debug_errno(r, "Failed to list metrics for metric family '%s': %m", previous->name);
-        }
-
-        return 0;
+int vl_method_describe(sd_varlink *link, sd_json_variant *parameters, sd_varlink_method_flags_t flags, void *userdata) {
+        return metric_method_describe(metric_family_table, link, parameters, flags, userdata);
 }
 
-int vl_method_describe(
-                sd_varlink *link,
-                sd_json_variant *parameters,
-                sd_varlink_method_flags_t flags,
-                void *userdata) {
-        int r;
-
-        assert(link);
-        assert(parameters);
-
-        r = sd_varlink_dispatch(link, parameters, /* dispatch_table= */ NULL, /* userdata= */ NULL);
-        if (r != 0)
-                return r;
-
-        if (!FLAGS_SET(flags, SD_VARLINK_METHOD_MORE))
-                return sd_varlink_error(link, SD_VARLINK_ERROR_EXPECTED_MORE, NULL);
-
-        const MetricFamily *previous = NULL;
-        for (const MetricFamily *mf = metric_family_table; mf && mf->name; mf++) {
-                if (previous) {
-                        r = vtable_describe_metrics_build_json_one(link, previous, /* more */ true);
-                        if (r < 0)
-                                return log_debug_errno(r, "Failed to describe metric family '%s': %m", previous->name);
-                }
-
-                previous = mf;
-        }
-
-        if (previous) {
-                r = vtable_describe_metrics_build_json_one(link, previous, /* more */ false);
-                if (r < 0)
-                        return log_debug_errno(r, "Failed to describe metric family '%s': %m", previous->name);
-        }
-
-        return 0;
+int vl_method_list(sd_varlink *link, sd_json_variant *parameters, sd_varlink_method_flags_t flags, void *userdata) {
+        return metric_method_list(metric_family_table, link, parameters, flags, userdata);
 }

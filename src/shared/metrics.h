@@ -48,3 +48,6 @@ int metric_family_json_build(sd_json_variant **v, const MetricFamily *metric_fam
 int metric_json_build_unsigned(sd_json_variant **v, const char *name, const char *object, uint64_t value, char **fields);
 int metric_json_build_integer(sd_json_variant **v, const char *name, const char *object, int64_t value, char **fields);
 int metric_json_build_string(sd_json_variant **v, const char *name, const char *object, const char *value, char **fields);
+
+int metric_method_describe(const MetricFamily metric_family_table[], sd_varlink *link, sd_json_variant *parameters, sd_varlink_method_flags_t flags, void *userdata);
+int metric_method_list(const MetricFamily metric_family_table[], sd_varlink *link, sd_json_variant *parameters, sd_varlink_method_flags_t flags, void *userdata);
